@@ -1,15 +1,19 @@
-# TTM4J Infrastructure deployment Pipeline
+# GitHub Actions for multiple Environments deployment
+Motivation: Flexible and easy-to-use workflow for multiple Environments deployment to AWS.
 ### Pre requirements
-1. GitHub OpenID Connect already installed on the AWS account
+1. GitHub OpenID Connect already installed on the AWS account.
+https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services
 IAM Role for the `OpenID Connect` should have limited permissions scoped to specific repository only.
-The GitHub OIDC Provider only needs to be created once per account.
+The GitHub OIDC Provider only needs to be created once per AWS account.
 S3 bucket to store Stack templates.
 Additional IAM Roles could be attached to the OpenID Provider later. ( e.g access to S3, ECR)
 Following Stack example will:
 - Create Identity provider.
 - IAM role with AWSCloudFormationFullAccess.
-- Policy to access PipelineBucket (artifacts).
-- S3 Bucket for storing artifacts and CFN templates.
+- Create S3 Bucket for storing artifacts and CFN templates.
+- Policy to access previously created artifacts bucket.
+- `PassRolePolicy` for CloudFormation Role.
+- ForGitHub Restriction, we could use following format  `repo:ORG_OR_USER_NAME/REPOSITORY:environment:Development`
 ```yaml
 ---
 # Copyright 2018 widdix GmbH
@@ -150,11 +154,34 @@ Outputs:
     Export:
       Name: !Sub 'githubpipeline-${AWS::Region}-${AWS::AccountId}'
 ```
-2. IAM Role, CloudFormation will be assumed during deployment.
+![Github Oidc Connect](assets/GithubOidcConnect.png)
+
+2. CloudFormation IAM Role that will be assumed during deployment.
 Scoped to specific repository, have only necessary permissions policies.
-(in case of TTM4J project, AdministratorAccess)
-```
-TO DO: Add Example
+(currently, I'm using kind of wide permissions policy)
+```yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Setup CloudFormation role for GitHub actions.
+Resources:
+  GitHubPipelineCloudFormationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: GitHubPipelineCloudFormationRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCloudFormationFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonEC2FullAccess
+        - arn:aws:iam::aws:policy/AmazonSSMFullAccess
+        - arn:aws:iam::aws:policy/IAMFullAccess
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+      Path: /
 ```
 ### GitHub Repository configuration
 1. Create 3 (or more) environments. In our case the environments as following:
@@ -164,10 +191,19 @@ TO DO: Add Example
 2. Define allowed branches per environment.
 Example: I added `main` and `ci-cd` for Development.
 3. We create secrets per environments. So, workflows can access secrets of desired environment only.
-```
-TO DO: Add picture
-```
-Example: `AWS_CFN_ROLE_TO_ASSUME` will be used later in pipeline when we deploy to Dev environment.
+![Environments](assets/Environments.png)
+
+![Configure Development](assets/ConfigureDevelopment.png)
+
+Example:
+`AWS_OIDC_ROLE`          - OpenID Connect role ARN `arn:aws:iam::XXXXXXXXXX:role/OpenIDConnect`
+`AWS_CFN_ROLE_TO_ASSUME` - will be assumed later in pipeline by CloudFormation when we deploy to Dev environment.
+`AWS_S3_BUCKET`          - S3 artifact bucket that OpenIDConnect role have access to.
+`AWS_DEFAULT_REGION`     - default region to use.
+`USECASE`                - used to pass additional arguments to CloudFormation template. This is allowing us to deploy different configurations to the same AWS account.
+For example:
+For dev we using `dev-EKSCluster-us-east-1.json`. We can create additional configuration set like `performance-EKSCluster-us-east-1.json`
+
 ```yaml
 role-arn: "${{ secrets.AWS_CFN_ROLE_TO_ASSUME }}"
 ```
@@ -176,6 +212,17 @@ role-arn: "${{ secrets.AWS_CFN_ROLE_TO_ASSUME }}"
 2. Any branches that set to `feature/xxxx` will be considered as staging and deployed to AWS `stage` environment.
 3. Releases with TAG will be considered as production and deployed to AWS `prod` environment.
 
+### CloudFormation Templates Config
+We put set of parameters for CloudFormation template that will be used in the deployment.
+(we can add as many as we need in format [USECASE]-[TEMPATE NAME]-[Region])
+### The Workflow
+This workflow will be bringing up AWS resources for desired environment:
+- GlobalRoles
+- VPC
+- Set of roles for EKS Cluster
+- EKS cluster
+
+![EKS Cluster](assets/CFN-VPC-EKS.drawio.png)
 ## ToDo
 1. Slack notification
 2. Comment on Pull Request With changeset.

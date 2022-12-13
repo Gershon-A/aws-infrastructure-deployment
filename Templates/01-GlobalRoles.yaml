@@ -1,0 +1,241 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Deploys global IAM roles, do not deploy this template in more than one region
+Parameters:
+  usecase:
+    Description: Which account are you deploying in?
+    Type: String
+    AllowedValues:
+      - 'prod'
+      - 'stage'
+      - 'dev'
+      - 'loadtest'
+      - 'dr'
+      - 'qa'
+    Default: prod
+
+Resources:
+  AWSSystemsManagerAutomationExecutionRole:
+    Type: 'AWS::IAM::Role'
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RoleName: MyApp-AWS-SystemsManager-AutomationExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole'
+      Path: /
+      Policies:
+        - PolicyName: ExecutionPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'resource-groups:ListGroupResources'
+                  - 'tag:GetResources'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'iam:PassRole'
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:iam::${AWS::AccountId}:role/MyApp-AWS-SystemsManager-AutomationExecutionRole
+      Tags:
+        - Key: Service
+          Value: MyApp
+        - Key: App
+          Value: MyApp
+        - Key: Env
+          Value: !Ref usecase
+        - Key: Team
+          Value: il-team
+        - Key: Department
+          Value: Engineering
+        - Key: Region
+          Value: !Ref 'AWS::Region'
+
+  roleEKSNode:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: MyApp-EKSNodeRole
+      Description: The role that Amazon EKS Node will use to manage Kubernetes clusters
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - eks.amazonaws.com
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: '/'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: 'CreateServiceLinkedRole'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:CreateServiceLinkedRole
+                Resource:
+                  - 'arn:aws:iam::*:role/aws-service-role/*'
+        - PolicyName: 'DescribeAccountAttributes'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeAccountAttributes
+                Resource:
+                  - '*'
+        - PolicyName: SecretsManagerPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetResourcePolicy'
+                  - 'secretsmanager:GetSecretValue'
+                  - 'secretsmanager:DescribeSecret'
+                  - 'secretsmanager:ListSecretVersionIds'
+                  - 'secretsmanager:ListSecrets'
+                  - 'ssm:GetParameter'
+                Resource:
+                  - '*'
+        - PolicyName: ClusterAutoscalerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - autoscaling:DescribeAutoScalingGroups
+                  - autoscaling:DescribeAutoScalingInstances
+                  - autoscaling:DescribeLaunchConfigurations
+                  - autoscaling:DescribeTags
+                  - autoscaling:SetDesiredCapacity
+                  - autoscaling:TerminateInstanceInAutoScalingGroup
+                Resource: '*'
+      Tags:
+        - Key: Service
+          Value: MyApp
+        - Key: App
+          Value: MyApp
+        - Key: Env
+          Value: !Ref usecase
+        - Key: Team
+          Value: il-team
+        - Key: Department
+          Value: Engineering
+        - Key: Region
+          Value: !Ref 'AWS::Region'
+
+  roleEKS:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: MyApp-EKSRole
+      Description: The role that Amazon EKS will use to create AWS resources for Kubernetes clusters
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - eks.amazonaws.com
+            Action:
+            - sts:AssumeRole
+      Path: '/'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+
+  roleEKSfargate:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: MyApp-AmazonEKSFargatePodExecutionRole
+      Description: Allows access to other AWS service resources that are required to run Amazon EKS pods on AWS Fargate.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - eks-fargate-pods.amazonaws.com
+            Action:
+            - sts:AssumeRole
+      Path: '/'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSFargatePodExecutionRolePolicy
+      Policies:
+        - PolicyName: eks-fargate-logging-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:CreateLogGroup
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                Resource:
+                  - '*'
+        - PolicyName: 's3-attachments'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 's3:AbortMultipartUpload'
+                  - 's3:DeleteObject'
+                  - 's3:DeleteObjectTagging'
+                  - 's3:DeleteObjectVersion'
+                  - 's3:DeleteObjectVersionTagging'
+                  - 's3:Get*'
+                  - 's3:PutObject'
+                  - 's3:PutObjectTagging'
+                  - 's3:RestoreObject'
+                  - 's3:ListMultipartUploadParts'
+                Resource:
+                  - !Sub 'arn:aws:s3:::MyApp-${usecase}-${AWS::Region}-${AWS::AccountId}/*'
+      Tags:
+        - Key: Service
+          Value: MyApp
+        - Key: App
+          Value: MyApp
+        - Key: Env
+          Value: !Ref usecase
+        - Key: Team
+          Value: il-team
+        - Key: Department
+          Value: Engineering
+        - Key: Region
+          Value: !Ref 'AWS::Region'
+
+Outputs:
+  roleEKSNode:
+    Value: !Sub ${roleEKSNode.Arn}
+    Description: EKS Node Role
+    Export:
+      Name: MyApp-eksNodeRole
+  roleEKS:
+    Value: !Sub ${roleEKS.Arn}
+    Description: EKS Role
+    Export:
+      Name: MyApp-eksRole
+  roleEKSfargate:
+    Value: !Sub ${roleEKSfargate.Arn}
+    Description: EKS Fargate Pod Execution Role
+    Export:
+      Name: !Sub MyApp-AmazonEKSFargatePodExecutionRole-${usecase}

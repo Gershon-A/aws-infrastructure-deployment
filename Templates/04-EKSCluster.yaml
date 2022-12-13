@@ -1,0 +1,231 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: MyApp EKS Cluster
+
+Parameters:
+
+  ClusterVersion:
+    Type: Number
+    Default: '1.22'
+    Description: Kubernetes Cluster Version
+
+  MinSize:
+    Type: Number
+    Default: '2'
+    Description: Minimum EC2 node instances
+
+  DesiredSize:
+    Type: Number
+    Default: '3'
+    Description: Desired EC2 node instances
+
+  MaxSize:
+    Type: Number
+    Default: '6'
+    Description: Maximum EC2 node instances
+
+  usecase:
+    Description: What is the use case?
+    Type: String
+    AllowedValues:
+      - 'prod'
+      - 'stage'
+      - 'dev'
+      - 'loadtest'
+      - 'dr'
+      - 'qa'
+    Default: prod
+  BucketName:
+    Description: Artifact bucket where we copied the CFN templates.
+    Type: String
+    Default: githubpipeline
+Mappings:
+
+  NodeInstanceType:
+    InstanceType:
+      prod: "t3a.large"
+      stage: "t3.medium"
+      dev: "t3.medium"
+
+  NodeVolumeSize:
+    VolumeSize:
+      prod: "30"
+      stage: "20"
+      dev: "20"
+
+# Conditions:
+#   isDev:  !Equals [!Ref usecase, "dev"]
+#   isProd: !Equals [!Ref usecase, "prod"]
+
+Resources:
+  Cluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Sub MyApp-${usecase}
+      Version: !Ref ClusterVersion
+      RoleArn: !Sub 'arn:aws:iam::${AWS::AccountId}:role/MyApp-EKSNodeRole'
+      Logging:
+        ClusterLogging:
+          EnabledTypes:
+            - Type: api
+            - Type: audit
+      ResourcesVpcConfig:
+#        SecurityGroupIds:
+#          - !Ref ClusterControlPlaneSecurityGroup
+        SubnetIds:
+          - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PrivateSubnetA:1}}"
+          - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PrivateSubnetB:1}}"
+          - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PrivateSubnetC:1}}"
+          - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PublicSubnetA:1}}"
+          - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PublicSubnetB:1}}"
+          - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PublicSubnetC:1}}"
+      Tags:
+        - Key: service
+          Value: eks
+        - Key: App
+          Value: MyApp
+        - Key: Env
+          Value: !Ref usecase
+        - Key: Department
+          Value: Engineering
+        - Key: Region
+          Value: !Ref "AWS::Region"
+
+  OIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 9e99a48a9960b14926bb7f3b02e22da2b0ab7280 #EKS Root CA Thumbprint for ALL regions
+      Url: !GetAtt Cluster.OpenIdConnectIssuerUrl
+
+  ClusterRolesStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${BucketName}-${AWS::Region}-${AWS::AccountId}.s3.${AWS::Region}.amazonaws.com/EKSRoles.yaml"
+      # !If
+      #  - isProd
+      #  - !Sub 'https://s3.amazonaws.com/codepipeline-${AWS::Region}-961716662228/Infrastructure/git/aws-infrastructure/Templates/MyApp-EKSRoles.yaml'
+      #  - !Sub 'https://s3.amazonaws.com/codepipeline-${AWS::Region}-${AWS::AccountId}/Infrastructure/git/aws-infrastructure/Templates/MyApp-EKSRoles.yaml'
+      #  !If [isDev, https://s3.amazonaws.com/cf-templates-7sautazkxf2d-us-east-1/MyApp-EKSRoles.yaml]
+      Parameters:
+        oidcArn: !Ref OIDCProvider
+        oidcUrl: !Select [ '1', !Split [ "//", !GetAtt Cluster.OpenIdConnectIssuerUrl ] ]
+        usecase: !Ref usecase
+
+  EKSNodegroup:
+    Type: 'AWS::EKS::Nodegroup'
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Properties:
+      ClusterName: !Ref Cluster
+      Version: !Ref ClusterVersion
+      NodeRole: !Sub 'arn:aws:iam::${AWS::AccountId}:role/MyApp-EKSNodeRole'
+      ScalingConfig:
+        MinSize: !Ref MinSize
+        DesiredSize: !Ref DesiredSize
+        MaxSize: !Ref MaxSize
+      DiskSize: !FindInMap [NodeVolumeSize, VolumeSize, !Ref usecase]
+      InstanceTypes:
+        - !FindInMap [NodeInstanceType, InstanceType, !Ref usecase]
+      Subnets:
+        - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PrivateSubnetA:1}}"
+        - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PrivateSubnetB:1}}"
+        - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PrivateSubnetC:1}}"
+
+
+  efsEKS:
+    Type: 'AWS::EFS::FileSystem'
+    Properties:
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub MyApp-EKS-${usecase}
+      PerformanceMode: generalPurpose
+      Encrypted: true
+  efsEKSMountA:
+    Type: 'AWS::EFS::MountTarget'
+    Properties:
+      FileSystemId: !Ref efsEKS
+      SecurityGroups:
+        - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/sgApplication:1}}"
+      SubnetId:
+        !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PrivateSubnetA:1}}"
+  efsEKSMountB:
+    Type: 'AWS::EFS::MountTarget'
+    Properties:
+      FileSystemId: !Ref efsEKS
+      SecurityGroups:
+        - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/sgApplication:1}}"
+      SubnetId:
+        !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PrivateSubnetB:1}}"
+  # efsEKSMountC:
+  #   Type: 'AWS::EFS::MountTarget'
+  #   Properties:
+  #     FileSystemId: !Ref efsEKS
+  #     SecurityGroups:
+  #       - !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/sgApplication:1}}"
+  #     SubnetId:
+  #       !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/PrivateSubnetC:1}}"
+
+  sgDatabaseIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: !Sub 'Allows traffic from EKS Cluster: ${AWS::StackName}'
+      GroupId:
+        !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/MyAppDatabaseSecurityGroup:1}}"
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      SourceSecurityGroupId: !Sub '${Cluster.ClusterSecurityGroupId}'
+
+  sgApplicationIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: !Sub 'Allows traffic from EKS Cluster: ${AWS::StackName}'
+      GroupId:
+        !Sub "{{resolve:ssm:/${usecase}/infrastructure-MyApp/sgApplication:1}}"
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      SourceSecurityGroupId: !Sub '${Cluster.ClusterSecurityGroupId}'
+
+
+# ------------------------------------------------------------#
+# SSM Parameter Exports
+# ------------------------------------------------------------#
+  parameterMyAppEKSSecurityGroup:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub 'MyApp ${usecase} EKS cluster Security Group'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/sgEKS'
+      Type: String
+      Value: !Sub '${Cluster.ClusterSecurityGroupId}'
+
+Outputs:
+  KubernetesClusterName:
+    Description: Cluster name
+    Value: !Ref Cluster
+    Export:
+      Name: !Sub ClusterName-${usecase}
+
+  KubernetesSecurityGroupId:
+    Description: SecurityGroup ID
+    Value: !GetAtt Cluster.ClusterSecurityGroupId
+    Export:
+      Name: !Sub KubernetesSecurityGroupId-${usecase}
+
+  KubernetesClusterNodegroupName:
+    Description: Nodegroup name
+    Value: !Ref EKSNodegroup
+    Export:
+      Name: !Sub KubernetesClusterNodegroupName-${usecase}
+  KubernetesClusterEndpoint:
+    Description: Cluster endpoint
+    Value: !GetAtt Cluster.Endpoint
+    Export:
+      Name: !Sub KubernetesClusterEndpoint-${usecase}
+  efsVolume:
+    Value: !Ref efsEKS
+    Description: EFS Volume for EKS
+    Export:
+      Name: !Sub EFS-EKS-Volume-${usecase}

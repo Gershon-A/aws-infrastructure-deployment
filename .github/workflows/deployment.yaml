@@ -1,0 +1,189 @@
+name: Deploy CloudFormation
+
+on:
+  workflow_call:
+    inputs:
+      # pass in environment through manual trigger, if not passed in, default to 'dev'
+      environment:
+        required: true
+        type: string
+        default: 'Development'
+      stack-name:
+        required: true
+        type: string
+      template:
+        required: true
+        type: string
+      parameter-file:
+        required: true
+        type: string
+      service-tag:
+        required: true
+        type: string
+      capabilities:
+        required: true
+        type: string
+
+    outputs:
+      DEPLOYMENT_STATUS:
+        description: "The latest stack status"
+        value: ${{ jobs.CloudformationDeployment.outputs.DEPLOYMENT_STATUS }}
+      STACK_NAME:
+        description: "The stack name"
+        value: ${{ jobs.CloudformationDeployment.outputs.STACK_NAME }}
+      STACK_OUTPUT:
+        description: "The first output string"
+        value: ${{ jobs.CloudformationDeployment.outputs.STACK_OUTPUT }}
+
+jobs:
+  CloudformationDeployment:
+      runs-on: ubuntu-latest
+      # Must explicitly state ENVIRONMENT to inherit SECRETS from caller workflow
+      environment:  ${{ inputs.environment }}
+      # Map the job outputs to step outputs
+      outputs:
+        DEPLOYMENT_STATUS:  ${{ steps.deployment.outputs.DEPLOYMENT_STATUS }}
+        STACK_NAME:         ${{ steps.deployment.outputs.STACK_NAME }}
+        STACK_OUTPUT:       ${{ steps.deployment.outputs.STACK_OUTPUT }}
+      # Must to be specify. Otherwise: "Could not load credentials from any providers"
+      permissions:
+        id-token: write
+        contents: read
+      steps:
+        - name: Install aws-cli
+          id: install-aws-cli
+          uses: unfor19/install-aws-cli-action@v1
+          with:
+            version: 2     # default
+            verbose: false # default
+            arch: amd64    # allowed values: amd64, arm64
+            rootdir: ""    # defaults to "PWD"
+            workdir: ""    # defaults to "PWD/unfor19-awscli"
+
+        - name: Configure AWS Credentials
+          uses: aws-actions/configure-aws-credentials@v1-node16
+          with:
+            aws-region:             ${{ secrets.AWS_DEFAULT_REGION }}
+            role-to-assume:         ${{ secrets.AWS_OIDC_ROLE }}
+            role-session-name:      GithubActions
+            aws-access-key-id:      ${{ env.AWS_ACCESS_KEY_ID }}
+            aws-secret-access-key:  ${{ env.AWS_SECRET_ACCESS_KEY }}
+
+        - name: Checkout
+          uses: actions/checkout@v3
+          with:
+            ref: 'ci-cd'
+
+        - name: Copy templates to artifact S3
+          id: s3
+          run: |
+            aws s3 sync Templates/. s3://${{ secrets.AWS_S3_BUCKET }}/
+
+        - name: Run CloudFormation Deployment for ${{ inputs.stack-name }}
+          if: steps.s3.outcome == 'success'
+          id: deployment
+          env:
+            STACK_NAME:         ${{ inputs.stack-name }}
+            TEMPLATE_FILE:      "file://${{ inputs.template }}"
+            PARAMETERS_FILE:    "file://TemplateConfigs/${{ secrets.USECASE }}-${{ inputs.parameter-file }}-${{ secrets.AWS_DEFAULT_REGION }}.json"
+            AWS_REGION:         ${{ secrets.AWS_DEFAULT_REGION }}
+            PARAMETER_OVERRIDE: "usecase=${{ secrets.USECASE }}"
+            CAPABILITIES: 'CAPABILITY_AUTO_EXPAND'
+            # CAPABILITIES:        CAPABILITY_AUTO_EXPAND, CAPABILITY_NAMED_IAM, CAPABILITY_IAM
+            # CAPABILITIES:       "${{ inputs.capabilities }}"
+            #  (IAM) role that CloudFormation assumes to create the stack.
+            ROLE_ARN:           "${{ secrets.AWS_CFN_ROLE_TO_ASSUME }}"
+            TAGS:               "Service=${{ inputs.service-tag }} Env=${{ inputs.environment }}"
+          run: |
+            set -eou pipefail
+            function status () {
+                    stack_status=$(aws cloudformation --region "$AWS_REGION" describe-stacks \
+                      --stack-name "$STACK_NAME" \
+                      --query Stacks[].StackStatus \
+                      --output text )
+
+                    CreationTime=$(aws cloudformation --region "$AWS_REGION" describe-stacks \
+                      --stack-name "$STACK_NAME" \
+                      --query Stacks[].CreationTime \
+                      --output text )
+
+                    LastUpdatedTime=$(aws cloudformation --region "$AWS_REGION" describe-stacks \
+                      --stack-name "$STACK_NAME" \
+                      --query Stacks[].LastUpdatedTime \
+                      --output text )
+
+                    aws cloudformation --region "$AWS_REGION" describe-stacks \
+                    --stack-name "$STACK_NAME" \
+                    --output json > /tmp/"${STACK_NAME}".txt
+
+                    echo -e "\n StackStatus: $stack_status"
+                    echo "DEPLOYMENT_STATUS=$stack_status"    >> $GITHUB_OUTPUT
+                    echo "DEPLOYMENT_STATUS=$stack_status"    >> "$GITHUB_ENV"
+                    echo "STACK_NAME=$STACK_NAME"             >> $GITHUB_OUTPUT
+                    echo "STACK_NAME=$STACK_NAME"             >> "$GITHUB_ENV"
+                    echo "STACK_CREATION_TIME=$CreationTime"  >> "$GITHUB_ENV"
+                    echo "STACK_UPDATE_TIME=$LastUpdatedTime" >> "$GITHUB_ENV"
+            }
+
+            if ! aws cloudformation --region "$AWS_REGION" describe-stacks --stack-name "$STACK_NAME" 2>&1 ; then
+                echo "Creating $STACK_NAME"
+                aws cloudformation --region "$AWS_REGION" create-stack \
+                --stack-name "$STACK_NAME" \
+                --template-body "$TEMPLATE_FILE" \
+                --parameters "$PARAMETERS_FILE" \
+                --capabilities "$CAPABILITIES" \
+                --role-arn "$ROLE_ARN"
+
+                aws cloudformation --region "$AWS_REGION" wait stack-create-complete --stack-name "$STACK_NAME"
+                status
+                echo "The exit status is:"
+                echo  $?
+            else
+                echo "Updating $STACK_NAME"
+                update_output=$(aws cloudformation --region "$AWS_REGION" update-stack \
+                --stack-name "$STACK_NAME" \
+                --template-body "$TEMPLATE_FILE" \
+                --parameters "$PARAMETERS_FILE" \
+                --role-arn "$ROLE_ARN" \
+                --capabilities "$CAPABILITIES" 2>&1 || [ $? -ne 0 ])
+
+                echo "$update_output"
+                if [[ $update_output == *"ValidationError"* && $update_output == *"No updates"* ]] ; then
+                    echo "No updates to setup stack"
+
+                status
+                echo "The exit status is:"
+                echo  $?
+
+                else
+                    echo "Waiting for stack update to complete"
+                    aws cloudformation --region "$AWS_REGION" wait stack-update-complete --stack-name "$STACK_NAME"
+                    # This just blocks forever if the previous command failed for another reason,
+                    # since it never sees update stack complete
+
+                    status
+                    echo "The exit status is:"
+                    echo  $?
+
+                fi
+            fi
+
+        - name: Upload file ${{ env.STACK_NAME }}.txt
+          if: always()
+          uses: actions/upload-artifact@v3
+          with:
+            name: ${{ env.STACK_NAME }}
+            path: /tmp/${{ env.STACK_NAME }}.txt
+            retention-days: 5
+
+        # Example
+        - name: Generate list using Markdown
+          run: |
+            echo "This is the Stack list with statuses:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY # this is a blank line
+            echo "- The ${{ env.STACK_NAME }} status is: ${{ env.DEPLOYMENT_STATUS }}" >> $GITHUB_STEP_SUMMARY
+            echo "- The ${{ env.STACK_NAME }} creation time is: ${{ env.STACK_CREATION_TIME }}" >> $GITHUB_STEP_SUMMARY
+            echo "- The ${{ env.STACK_NAME }} update time is: ${{ env.STACK_UPDATE_TIME }}" >> $GITHUB_STEP_SUMMARY
+
+
+
