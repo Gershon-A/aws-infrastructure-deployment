@@ -1,0 +1,40 @@
+name: Get Environment
+
+on:
+  workflow_call:
+    outputs:
+      deployment-environment:
+        description: "Target Deployment Environment"
+        value: ${{ jobs.get-environment.outputs.deployment-environment }}
+
+jobs:
+
+  get-environment:
+    name: Get Environment
+    runs-on: ubuntu-latest
+
+    outputs:
+      deployment-environment: ${{ steps.get-environment.outputs.deployment-environment }}
+
+    steps:
+
+      - name: Production?
+        # Condition to make sure it's a release that is being published.
+        if: github.event.release != ''
+        run: echo DEPLOYMENT_ENVIRONMENT=Production >> $GITHUB_ENV
+
+      - name: Staging?
+        # Condition to make sure it's a `release` branch that the changes are pushed into.
+        if: ${{ contains(github.ref, 'refs/heads/release/') }}
+        run: echo DEPLOYMENT_ENVIRONMENT=Staging >> $GITHUB_ENV
+
+      - name: Development?
+        # If it's not Production or Staging --> it's Development.
+        if: env.DEPLOYMENT_ENVIRONMENT == ''
+        run: echo DEPLOYMENT_ENVIRONMENT=Development >> $GITHUB_ENV
+
+      - id: get-environment
+        if: ${{ env.DEPLOYMENT_ENVIRONMENT }}
+        name: Set Deployment Environment
+        run: echo '::set-output name=deployment-environment::${{ env.DEPLOYMENT_ENVIRONMENT }}'
+        # run: echo {deployment-environment}=${{ env.DEPLOYMENT_ENVIRONMENT }} >> $GITHUB_OUTPUT
