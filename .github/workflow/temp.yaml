@@ -7,7 +7,7 @@ jobs:
   echo_creds:
 
     runs-on: ubuntu-latest
-
+      environment:  Development
     steps:
 
       - name: echo creds
