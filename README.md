@@ -1,5 +1,7 @@
 # GitHub Actions for multiple Environments deployment
 Motivation: Flexible and easy-to-use workflow for multiple Environments deployment to AWS.
+![AWS Deployment Workflow](assets/aws-infrastructure-deploy.png)
+
 ### Pre requirements
 1. GitHub OpenID Connect already installed on the AWS account.
 https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services
@@ -195,7 +197,7 @@ Example: I added `main` and `ci-cd` for Development.
 
 ![Configure Development](assets/ConfigureDevelopment.png)
 
-Example:
+Example:<br />
 `AWS_OIDC_ROLE`          - OpenID Connect role ARN `arn:aws:iam::XXXXXXXXXX:role/OpenIDConnect`<br />
 `AWS_CFN_ROLE_TO_ASSUME` - will be assumed later in pipeline by CloudFormation when we deploy to Dev environment.<br />
 `AWS_S3_ARTIFACT_BUCKET` - S3 artifact bucket that OpenIDConnect role have access to.
