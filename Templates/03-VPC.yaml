@@ -1,0 +1,952 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Amazon EKS VPC - Private and Public subnets'
+
+Parameters:
+  usecase:
+    Description: Which account are you deploying in?
+    Type: String
+    AllowedValues:
+      - 'prod'
+      - 'stage'
+      - 'dev'
+      - 'loadtest'
+      - 'disasterrecovery'
+
+  AZCount:
+    Description: Enter how many Availability Zones you are deploying to.
+    Type: String
+    Default: '3'
+    AllowedValues:
+      - '2'
+      - '3'
+
+  VpcBlock:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 172.16.0.0/16
+    Description: CIDR block for the VPC
+    Type: String
+
+  PrivateSubnetACIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 172.16.101.0/24
+    Description: CIDR block for private subnet A located in Availability Zone 1
+    Type: String
+
+  PrivateSubnetBCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 172.16.102.0/24
+    Description: CIDR block for private subnet B located in Availability Zone 2
+    Type: String
+
+  PrivateSubnetCCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 172.16.103.0/24
+    Description: CIDR block for private subnet C located in Availability Zone 3
+    Type: String
+
+  PublicSubnetACIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 172.16.1.0/24
+    Description: CIDR block for the public DMZ subnet 1 located in Availability Zone 1
+    Type: String
+
+  PublicSubnetBCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 172.16.2.0/24
+    Description: CIDR block for the public DMZ subnet 2 located in Availability Zone 2
+    Type: String
+
+  PublicSubnetCCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 172.16.3.0/24
+    Description: CIDR block for the public DMZ subnet 3 located in Availability Zone 3
+    Type: String
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Availability Zone Configuration
+        Parameters:
+          - AZCount
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - VpcBlock
+          - PublicSubnetACIDR
+          - PublicSubnetBCIDR
+          - PublicSubnetCCIDR
+          - PrivateSubnetACIDR
+          - PrivateSubnetBCIDR
+          - PrivateSubnetCCIDR
+    ParameterLabels:
+      usecase:
+        default: usecase
+      PrivateSubnetACIDR:
+        default: Private subnet A CIDR
+      PrivateSubnetBCIDR:
+        default: Private subnet B CIDR
+      PrivateSubnetCCIDR:
+        default: Private subnet C CIDR
+      PublicSubnetACIDR:
+        default: Public subnet A CIDR
+      PublicSubnetBCIDR:
+        default: Public subnet B CIDR
+      PublicSubnetCCIDR:
+        default: Public subnet C CIDR
+      AZCount:
+        default: How many AZ's did you select?
+Mappings:
+  AWSRegion2AZ:
+    us-east-1:
+      A: us-east-1a
+      B: us-east-1b
+      C: us-east-1c
+      D: us-east-1d
+    us-west-1:
+      A: us-west-1a
+      B: us-west-1b
+      C: us-west-1c
+    us-west-2:
+      A: us-west-2a
+      B: us-west-2b
+      C: us-west-2c
+Conditions:
+  3AZCount: !Equals
+    - !Ref AZCount
+    - '3'
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:  !Ref VpcBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: !Sub 'MyApp-${usecase}-VPC'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  InternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Sub 'MyApp-${usecase}-igw'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  VPCGatewayAttachment:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub 'MyApp-${usecase}-Public-RouteTable'
+      - Key: Network
+        Value: Public
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  PrivateRouteTable01:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Private Subnet AZ1
+      - Key: Network
+        Value: Private01
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  PrivateRouteTable02:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Private Subnet AZ2
+      - Key: Network
+        Value: Private02
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  PrivateRouteTable03:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Private Subnet AZ3
+      - Key: Network
+        Value: Private02
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  PublicRoute:
+    DependsOn: VPCGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PrivateRoute01:
+    DependsOn:
+    - VPCGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable01
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway01
+
+  PrivateRoute02:
+    DependsOn:
+    - VPCGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable02
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway02
+
+  PrivateRoute03:
+    DependsOn:
+    - VPCGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable03
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway03
+
+  NatGateway01:
+    DependsOn:
+    - VPCGatewayAttachment
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt 'NatGatewayEIP1.AllocationId'
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+      - Key: Name
+        Value: !Sub 'MyApp-${usecase}-NatGatewayAZ1'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  NatGateway02:
+    DependsOn:
+    - VPCGatewayAttachment
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt 'NatGatewayEIP2.AllocationId'
+      SubnetId: !Ref PublicSubnetB
+      Tags:
+      - Key: Name
+        Value: !Sub 'MyApp-${usecase}-NatGatewayAZ2'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  NatGateway03:
+    DependsOn:
+    - VPCGatewayAttachment
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt 'NatGatewayEIP3.AllocationId'
+      SubnetId: !Ref PublicSubnetC
+      Tags:
+      - Key: Name
+        Value: !Sub 'MyApp-${usecase}-NatGatewayAZ3'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  NatGatewayEIP1:
+    DependsOn:
+    - VPCGatewayAttachment
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+
+  NatGatewayEIP2:
+    DependsOn:
+    - VPCGatewayAttachment
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+
+  NatGatewayEIP3:
+    DependsOn:
+    - VPCGatewayAttachment
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Subnet A
+    Properties:
+      MapPublicIpOnLaunch: true
+      AvailabilityZone:
+        Fn::FindInMap:
+        - AWSRegion2AZ
+        - Ref: AWS::Region
+        - A
+      CidrBlock: !Ref PublicSubnetACIDR
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "MyApp-${usecase}-PublicSubnetA"
+      - Key: kubernetes.io/role/elb
+        Value: '1'
+      - Key: !Sub 'kubernetes.io/cluster/MyApp-${usecase}'
+        Value: 'shared'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  PublicSubnetB:
+    DependsOn: PublicSubnetA
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Subnet B
+    Properties:
+      MapPublicIpOnLaunch: true
+      AvailabilityZone:
+        Fn::FindInMap:
+        - AWSRegion2AZ
+        - Ref: AWS::Region
+        - B
+      CidrBlock: !Ref PublicSubnetBCIDR
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "MyApp-${usecase}-PublicSubnetB"
+      - Key: kubernetes.io/role/elb
+        Value: '1'
+      - Key: !Sub 'kubernetes.io/cluster/MyApp-${usecase}'
+        Value: 'shared'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  PublicSubnetC:
+    DependsOn: PublicSubnetB
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Subnet C
+    Properties:
+      MapPublicIpOnLaunch: true
+      AvailabilityZone:
+        Fn::FindInMap:
+        - AWSRegion2AZ
+        - Ref: AWS::Region
+        - C
+      CidrBlock: !Ref PublicSubnetCCIDR
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "MyApp-${usecase}-PublicSubnetC"
+      - Key: kubernetes.io/role/elb
+        Value: '1'
+      - Key: !Sub 'kubernetes.io/cluster/MyApp-${usecase}'
+        Value: 'shared'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Subnet 03
+    Properties:
+      AvailabilityZone:
+        Fn::FindInMap:
+        - AWSRegion2AZ
+        - Ref: AWS::Region
+        - A
+      CidrBlock: !Ref PrivateSubnetACIDR
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "MyApp-${usecase}-PrivateSubnetA"
+      - Key: kubernetes.io/role/internal-elb
+        Value: '1'
+      - Key: !Sub 'kubernetes.io/cluster/MyApp-${usecase}'
+        Value: 'shared'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    DependsOn: PrivateSubnetA
+    Metadata:
+      Comment: Private Subnet B
+    Properties:
+      AvailabilityZone:
+        Fn::FindInMap:
+        - AWSRegion2AZ
+        - Ref: AWS::Region
+        - B
+      CidrBlock: !Ref PrivateSubnetBCIDR
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "MyApp-${usecase}-PrivateSubnetB"
+      - Key: kubernetes.io/role/internal-elb
+        Value: '1'
+      - Key: !Sub 'kubernetes.io/cluster/MyApp-${usecase}'
+        Value: 'shared'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet
+    DependsOn: PrivateSubnetB
+    Metadata:
+      Comment: Private Subnet C
+    Properties:
+      AvailabilityZone:
+        Fn::FindInMap:
+        - AWSRegion2AZ
+        - Ref: AWS::Region
+        - C
+      CidrBlock: !Ref PrivateSubnetCCIDR
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "MyApp-${usecase}-PrivateSubnetC"
+      - Key: kubernetes.io/role/internal-elb
+        Value: '1'
+      - Key: !Sub 'kubernetes.io/cluster/MyApp-${usecase}'
+        Value: 'shared'
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetCRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetC
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable01
+
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable02
+
+  PrivateSubnetCRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetC
+      RouteTableId: !Ref PrivateRouteTable03
+# ------------------------------------------------------------#
+# Database subnet
+# ------------------------------------------------------------#
+  dbSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: DB  Subnet
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+        - Fn::If:
+          - 3AZCount
+          - Ref: PrivateSubnetC
+          - Ref: AWS::NoValue
+      Tags:
+        - Key: Service
+          Value: MyApp
+        - Key: App
+          Value: MyApp
+        - Key: Env
+          Value: !Ref usecase
+        - Key: Team
+          Value: il-team
+        - Key: Department
+          Value: Engineering
+        - Key: Region
+          Value: !Ref 'AWS::Region'
+# ------------------------------------------------------------#
+# Security Groups
+# ------------------------------------------------------------#
+  ControlPlaneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Cluster communication with worker nodes
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "MyApp-${usecase}-ControlPlane"
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  sgDatabase:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable traffic from EKS Application and Database
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+      Tags:
+      - Key: Name
+        Value: !Sub Database-${usecase}
+      - Key: service
+        Value: eks
+      - Key: App
+        Value: MyApp
+      - Key: Env
+        Value: !Ref usecase
+
+      - Key: Department
+        Value: Engineering
+      - Key: Region
+        Value: !Ref 'AWS::Region'
+
+  sgloadbalancer:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable communication from internet to Application Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub Loadbalancer-${usecase}
+        - Key: service
+          Value: eks
+        - Key: App
+          Value: MyApp
+        - Key: Env
+          Value: !Ref usecase
+        - Key: Team
+          Value: il-team
+        - Key: Department
+          Value: Engineering
+        - Key: Region
+          Value: !Ref 'AWS::Region'
+
+  sgApplication:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable communication from load balancer and between instances.
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref sgloadbalancer
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref sgloadbalancer
+      Tags:
+        - Key: Name
+          Value: !Sub Application-${usecase}
+        - Key: service
+          Value: eks
+        - Key: App
+          Value: MyApp
+        - Key: Env
+          Value: !Ref usecase
+        - Key: Team
+          Value: il-team
+        - Key: Department
+          Value: Engineering
+        - Key: Region
+          Value: !Ref 'AWS::Region'
+# ------------------------------------------------------------#
+# SSM Parameter Exports
+# ------------------------------------------------------------#
+  parameterMyAppVPC:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub 'MyApp ${usecase} VPC ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/MyApp-VPC'
+      Type: String
+      Value: !Ref VPC
+
+  parameterPrivateSubnetA:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PrivateSubnetA ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PrivateSubnetA'
+      Type: String
+      Value: !Ref PrivateSubnetA
+
+  parameterPrivateSubnetB:
+    DependsOn: PrivateSubnetA
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PrivateSubnetB ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PrivateSubnetB'
+      Type: String
+      Value: !Ref PrivateSubnetB
+
+  parameterPrivateSubnetC:
+    DependsOn: PrivateSubnetB
+    Condition: 3AZCount
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PrivateSubnetC ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PrivateSubnetC'
+      Type: String
+      Value: !Ref PrivateSubnetCCIDR
+
+  parameterPrivateRouteTableA:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PrivateRouteTableA ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PrivateRouteTableA'
+      Type: String
+      Value: !Ref PrivateRoute01
+
+  parameterPrivateRouteTableB:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PrivateRouteTableb ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PrivateRouteTableB'
+      Type: String
+      Value: !Ref PrivateRoute02
+
+  parameterPrivateRouteTableC:
+    Condition: 3AZCount
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PrivateRouteTableC ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PrivateRouteTableC'
+      Type: String
+      Value: !Ref PrivateRoute03
+
+  parameterPublicRouteTableA:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PublicRouteTableA ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PublicRouteTableA'
+      Type: String
+      Value: !Ref PublicRoute
+
+  parameterPublicRouteTableB:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PublicRouteTableb ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PublicRouteTableB'
+      Type: String
+      Value: !Ref PublicRoute
+
+  parameterPublicRouteTableC:
+    Condition: 3AZCount
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PublicRouteTableC ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PublicRouteTableC'
+      Type: String
+      Value: !Ref PublicRoute
+
+  parameterPublicSubnetA:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PublicSubnetA ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PublicSubnetA'
+      Type: String
+      Value: !Ref PublicSubnetA
+
+  parameterPublicSubnetB:
+    DependsOn: PublicSubnetA
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PublicSubnetB ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PublicSubnetB'
+      Type: String
+      Value: !Ref PublicSubnetB
+
+  parameterPublicSubnetC:
+    DependsOn: PublicSubnetB
+    Condition: 3AZCount
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} PublicSubnetC ID'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/PublicSubnetC'
+      Type: String
+      Value: !Ref PublicSubnetC
+
+  parameterNATEIP:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} NAT1 Elastic IP Address'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/NATGatewayA-EIP'
+      Type: String
+      Value: !Ref NatGatewayEIP1
+
+  parameterNAT2EIP:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} NAT2 Elastic IP Address'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/NATGatewayB-EIP'
+      Type: String
+      Value: !Ref NatGatewayEIP2
+
+  parameterNAT3EIP:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} NAT3 Elastic IP Address'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/NATGatewayC-EIP'
+      Type: String
+      Value: !Ref NatGatewayEIP3
+
+  parameterDatabaseSG:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} MyApp Database Security Group'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/MyAppDatabaseSecurityGroup'
+      Type: String
+      Value: !Ref sgDatabase
+
+  parameterApplicationSG:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} MyApp Database Security Group'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/sgApplication'
+      Type: String
+      Value: !Ref sgApplication
+
+  parameterLoadbalancerSG:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} MyApp Database Security Group'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/sgloadbalancer'
+      Type: String
+      Value: !Ref sgloadbalancer
+
+  parameterdbSubnetGroup:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub '${usecase} MyApp Database Security Group'
+      Name: !Sub '/${usecase}/infrastructure-MyApp/dbSubnetGroup'
+      Type: String
+      Value: !Ref dbSubnetGroup
+
+Outputs:
+#
+#   SubnetIds:
+#     Description: Subnets IDs in the VPC
+#     Value: !Join [ ",", [ !Ref PublicSubnetA, !Ref PublicSubnetB, !Ref PublicSubnetC, !Ref PrivateSubnetA, !Ref PrivateSubnetB, !Ref PrivateSubnetC  ] ]
+#
+  SecurityGroups:
+    Description: Security group for the cluster control plane communication with worker nodes
+    Value: !Ref ControlPlaneSecurityGroup
+
+  VpcId:
+    Description: The VPC Id
+    Value: !Ref VPC
+
+  sgApplicationId:
+    Value: !Ref sgApplication
+    Description: Application Security Group ID
+    Export:
+      Name: !Sub sgApplication-${AWS::StackName}
+
+  sgDatabaseId:
+    Value: !Ref sgDatabase
+    Description: Database Security Group ID
+    Export:
+      Name:  !Sub sgDatabase-${AWS::StackName}
+
+  sgloadbalancerId:
+    Value: !Ref sgloadbalancer
+    Description: Load Balancer Security Group ID
+    Export:
+      Name: !Sub sgloadbalancer-${AWS::StackName}

@@ -1,0 +1,39 @@
+[
+    {
+        "ParameterKey":"usecase",
+        "ParameterValue":"dev"
+    },
+    {
+        "ParameterKey":"AZCount",
+        "ParameterValue":"3"
+    },
+    {
+        "ParameterKey":"VpcBlock",
+        "ParameterValue":"172.16.0.0/16"
+    },
+    {
+        "ParameterKey":"PrivateSubnetACIDR",
+        "ParameterValue":"172.16.101.0/24"
+    },
+    {
+        "ParameterKey":"PrivateSubnetBCIDR",
+        "ParameterValue":"172.16.102.0/24"
+    },
+    {
+        "ParameterKey":"PrivateSubnetCCIDR",
+        "ParameterValue":"172.16.103.0/24"
+    },
+    {
+        "ParameterKey":"PublicSubnetACIDR",
+        "ParameterValue":"172.16.1.0/24"
+    },
+    {
+        "ParameterKey":"PublicSubnetBCIDR",
+        "ParameterValue":"172.16.2.0/24"
+    },
+    {
+        "ParameterKey":"PublicSubnetCCIDR",
+        "ParameterValue":"172.16.3.0/24"
+    }
+
+]

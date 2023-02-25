@@ -1,0 +1,26 @@
+[
+    {
+        "ParameterKey":"usecase",
+        "ParameterValue":"dev"
+    },
+    {
+        "ParameterKey":"BucketName",
+        "ParameterValue":"githubpipeline"
+    },
+    {
+        "ParameterKey":"ClusterVersion",
+        "ParameterValue":"1.22"
+    },
+    {
+        "ParameterKey":"MinSize",
+        "ParameterValue":"2"
+    },
+    {
+        "ParameterKey":"DesiredSize",
+        "ParameterValue":"3"
+    },
+    {
+        "ParameterKey":"MaxSize",
+        "ParameterValue":"6"
+    }
+]

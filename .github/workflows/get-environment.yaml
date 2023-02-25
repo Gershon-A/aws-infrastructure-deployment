@@ -36,5 +36,5 @@ jobs:
       - id: get-environment
         if: ${{ env.DEPLOYMENT_ENVIRONMENT }}
         name: Set Deployment Environment
-        run: echo '::set-output name=deployment-environment::${{ env.DEPLOYMENT_ENVIRONMENT }}'
-        # run: echo {deployment-environment}=${{ env.DEPLOYMENT_ENVIRONMENT }} >> $GITHUB_OUTPUT
+        run: |
+          echo deployment-environment=${{ env.DEPLOYMENT_ENVIRONMENT }} >> $GITHUB_OUTPUT
