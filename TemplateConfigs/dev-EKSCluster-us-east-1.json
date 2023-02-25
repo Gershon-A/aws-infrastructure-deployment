@@ -5,7 +5,7 @@
     },
     {
         "ParameterKey":"BucketName",
-        "ParameterValue":"githubpipeline"
+        "ParameterValue":"githubpipeline-us-east-1"
     },
     {
         "ParameterKey":"ClusterVersion",
