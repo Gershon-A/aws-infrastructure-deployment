@@ -196,11 +196,11 @@ Example: I added `main` and `ci-cd` for Development.
 ![Configure Development](assets/ConfigureDevelopment.png)
 
 Example:
-`AWS_OIDC_ROLE`          - OpenID Connect role ARN `arn:aws:iam::XXXXXXXXXX:role/OpenIDConnect`
-`AWS_CFN_ROLE_TO_ASSUME` - will be assumed later in pipeline by CloudFormation when we deploy to Dev environment.
+`AWS_OIDC_ROLE`          - OpenID Connect role ARN `arn:aws:iam::XXXXXXXXXX:role/OpenIDConnect`<br />
+`AWS_CFN_ROLE_TO_ASSUME` - will be assumed later in pipeline by CloudFormation when we deploy to Dev environment.<br />
 `AWS_S3_BUCKET`          - S3 artifact bucket that OpenIDConnect role have access to.
-`AWS_DEFAULT_REGION`     - default region to use.
-`USECASE`                - used to pass additional arguments to CloudFormation template. This is allowing us to deploy different configurations to the same AWS account.
+`AWS_DEFAULT_REGION`     - default region to use.<br />
+`USECASE`                - used to pass additional arguments to CloudFormation template. This is allowing us to deploy different configurations to the same AWS account.<br />
 For example:
 For dev we using `dev-EKSCluster-us-east-1.json`. We can create additional configuration set like `performance-EKSCluster-us-east-1.json`
 
