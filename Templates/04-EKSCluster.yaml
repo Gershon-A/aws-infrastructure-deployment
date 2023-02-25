@@ -115,8 +115,6 @@ Resources:
 
   EKSNodegroup:
     Type: 'AWS::EKS::Nodegroup'
-    UpdateReplacePolicy: Retain
-    DeletionPolicy: Retain
     Properties:
       ClusterName: !Ref Cluster
       Version: !Ref ClusterVersion
