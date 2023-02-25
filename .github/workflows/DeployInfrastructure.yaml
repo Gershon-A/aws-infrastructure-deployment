@@ -25,7 +25,6 @@ jobs:
       strategy:
         matrix:
           arrays: [
-            { stack-name: "MyApp-TestS3",         template: "Templates/test-s3.yaml",         parameter-file: "TestS3" },
             { stack-name: "MyApp-GlobalRoles",    template: "Templates/01-GlobalRoles.yaml",  parameter-file: "GlobalRoles" },
             { stack-name: "MyApp-VPC",            template: "Templates/03-VPC.yaml",          parameter-file: "VPC" },
             { stack-name: "MyApp-EKSCluster",     template: "Templates/04-EKSCluster.yaml",   parameter-file: "EKSCluster" },
