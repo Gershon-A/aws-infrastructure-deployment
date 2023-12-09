@@ -1,6 +1,10 @@
 name: Snyk Infrastructure as Code scan
 
-on: [push]
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   snyk-iac-scan:
