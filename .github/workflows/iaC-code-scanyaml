@@ -1,0 +1,22 @@
+name: Snyk Infrastructure as Code scan
+
+on: [push]
+
+jobs:
+  snyk-iac-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Snyk Infrastructure as Code scan
+        id: snyk-iac-scan
+        uses: Gershon-A/snyk-iac-code-security-checks@main
+        continue-on-error: true
+        with:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          SNYK_ORG_ID: ${{ secrets.SNYK_ORG_ID }}
+          SEVERITY_THRESHOLD: "critical"
+          FILE: "Templates/*"
+          update_pr_with_scan_results: true
